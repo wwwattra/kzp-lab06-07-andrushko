@@ -3,8 +3,8 @@
 from pathlib import Path
 
 
-def format_report(summary: dict[str, object]) -> str:
-    """Форматує підсумок у детермінований текстовий звіт."""
+def format_report(summary: dict) -> str:
+    """Форматує підсумок: перші рядки збігаються зі звітом ЛР6, далі - навантаження."""
     lines = [
         "Звіт: спортивні тренування",
         f"Записів: {summary['count']}",
@@ -19,11 +19,17 @@ def format_report(summary: dict[str, object]) -> str:
     if longest is None:
         lines.append("Найдовше тренування: немає даних")
     else:
-        lines.append(
-            f"Найдовше тренування: {longest['date']} {longest['kind']}, {longest['duration']} хв"
-        )
-    if "minutes_long" in summary:
-        lines.append(f"Сумарний час тренувань від 45 хв: {summary['minutes_long']:.0f} хв")
+        lines.append(f"Найдовше тренування: {longest}")
+    lines.append(f"Сумарний час тренувань від 45 хв: {summary['minutes_long']:.0f} хв")
+    lines.append("Навантаження за видом (load), бали:")
+    for kind, load in sorted(summary["load_by_kind"].items()):
+        lines.append(f"  {kind}: {load:.2f}")
+    best = summary["best"]
+    lines.append(
+        "Найбільше навантаження: немає даних"
+        if best is None
+        else f"Найбільше навантаження: {best} ({best.load():.2f})"
+    )
     return "\n".join(lines) + "\n"
 
 

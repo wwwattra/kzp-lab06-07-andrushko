@@ -1,98 +1,234 @@
-# Звіт до лабораторної роботи №6
+# Звіт до лабораторної роботи №7
 
-з дисципліни «Кросплатформні засоби програмування», тема «Обробка даних засобами Python». Варіант 2. Спортивні тренування.
+з дисципліни «Кросплатформні засоби програмування», тема «Об'єктно-орієнтована обробка даних у Python». Варіант 2. Спортивні тренування.
 Виконав: студент групи КІ-302 Андрушко А. І. Прийняв: Олексів М. В.
 
 ## Тема, номер і варіант
 
-Лабораторна робота № 6 «Обробка даних засобами Python». Варіант 2 – «Спортивні тренування». ОС – Windows 10 (64-bit), Python 3.12.10, pytest 9.1.1, ruff 0.17.1, build 1.6.1.
+Лабораторна робота № 7 «Об'єктно-орієнтована обробка даних у Python». Варіант 2 – «Спортивні тренування»: базовий клас Training, підтипи Running і Cycling, спільна операція load() за пульсом або дистанцією, підсумок – навантаження за видом. ОС – Windows 10 (64-bit), Python 3.12.10.
 
-Посилання на GitHub-репозиторій: https://github.com/[ваш-логін]/kzp-lab-andrushko (каталог або гілка lab06), Git-тег v0.1.0-py.
+Посилання на GitHub-репозиторій: https://github.com/[ваш-логін]/kzp-lab-andrushko (каталог або гілка lab07), Git-тег v0.2.0-py.
 
-## Мета роботи
+## Стан до і після
 
-Створити Python-пакет kzp_lab06, який читає CSV через csv.DictReader, перетворює текстові поля на типізовані значення, будує звіт за списками, словниками й множинами, записує його у файл через with і Path.open, обробляє помилки без голого except із збереженням першопричини, має CLI, тести pytest, перевірку ruff і збирається у wheel.
+*Таблиця 1 – Словникова модель ЛР6 → об'єктна модель ЛР7*
 
-## Формат CSV
+| До роботи | Після роботи |
+|---|---|
+| dict[str, object] для запису | екземпляр Running або Cycling |
+| перевірки в loader | перевірки у властивостях і конструкторі |
+| доступ record["duration"] | властивість training.duration |
+| одна функція для всіх записів | підтипи з різною формулою load() |
+| словник підсумку | незмінний @dataclass(frozen=True) ReportSummary |
 
-Файл data/input.csv у UTF-8 із заголовком date,kind,duration,distance,pulse. Типи після перетворення: date – str (ISO YYYY-MM-DD), kind – str (нормалізований через strip), duration – int, distance – float, pulse – int (додатний). Від'ємні значення заборонені. Порожній файл або файл лише із заголовком дають порожній список записів і звіт «Записів: 0». Поле з комою записується в лапках, наприклад 2026-09-03,"біг, інтервали",40,6.0,165.
+CSV-поля та перші 11 рядків звіту залишилися такими самими, як у ЛР6; додано розділ навантаження за видом і найбільше навантаження.
 
-*Лістинг 1 – Вхідні дані data/input.csv*
+## Модель
+
+Training.__init__ встановлює date і kind (лише читання, порожні значення відхиляються) та присвоює duration, distance, pulse через setter-и властивостей. Інваріанти: тривалість і дистанція невід'ємні, пульс у діапазоні 30–250. Setter записує внутрішнє поле _duration, а не властивість, щоб не викликати себе рекурсивно. Спеціальні методи: __str__ для читача («2026-09-01 біг, 45 хв»), __repr__ для діагностики, __eq__ порівнює однакові підтипи за повним станом і повертає NotImplemented для несумісного типу. Оскільки об'єкт змінюваний, __hash__ = None. Впорядкування – через key=Training.sort_key (довші першими, далі за датою).
+
+*Лістинг 1 – src/kzp_lab07/models.py*
 
 ```text
-date,kind,duration,distance,pulse
-2026-09-01,біг,45,8.5,148
-2026-09-02,велосипед,90,32.0,132
-2026-09-03,"біг, інтервали",40,6.0,165
-2026-09-05,біг,30,5.2,140
-2026-09-06,велосипед,60,21.5,128
-2026-09-08,біг,75,12.8,145
-2026-09-08,велосипед,120,41.3,138
-2026-09-10,біг,45,10.0,152
+"""Класи предметної області: тренування, підтипи, протокол і підсумок."""
+
+from dataclasses import dataclass
+from typing import Protocol
+
+class Loaded(Protocol):
+    """Протокол об'єктів, що вміють обчислювати навантаження."""
+
+    def load(self) -> float:
+        """Повертає навантаження в умовних балах."""
+        ...
+
+class Training:
+    """Базове тренування з перевіреним спільним станом."""
+
+    def __init__(self, date: str, kind: str, duration: int, distance: float, pulse: int) -> None:
+        """Створює тренування; значення перевіряються у setter-ах властивостей."""
+        if not date or not date.strip():
+            raise ValueError("Дата не може бути порожньою")
+        if not kind or not kind.strip():
+            raise ValueError("Вид не може бути порожнім")
+        self._date = date.strip()
+        self._kind = kind.strip()
+        self.duration = duration
+        self.distance = distance
+        self.pulse = pulse
+
+    @property
+    def date(self) -> str:
+        """Повертає дату у форматі YYYY-MM-DD (лише читання)."""
+        return self._date
+
+    @property
+    def kind(self) -> str:
+        """Повертає вид тренування (лише читання)."""
+        return self._kind
+
+    @property
+    def duration(self) -> int:
+        """Повертає тривалість у хвилинах."""
+        return self._duration
+
+    @duration.setter
+    def duration(self, value: int) -> None:
+        """Встановлює невід'ємну тривалість."""
+        # Записуємо внутрішнє поле, а не властивість, щоб не викликати setter рекурсивно.
+        if value < 0:
+            raise ValueError("Тривалість не може бути від'ємною")
+        self._duration = value
+
+    @property
+    def distance(self) -> float:
+        """Повертає дистанцію в кілометрах."""
+        return self._distance
+
+    @distance.setter
+    def distance(self, value: float) -> None:
+        """Встановлює невід'ємну дистанцію."""
+        if value < 0:
+            raise ValueError("Дистанція не може бути від'ємною")
+        self._distance = float(value)
+
+    @property
+    def pulse(self) -> int:
+        """Повертає середній пульс."""
+        return self._pulse
+
+    @pulse.setter
+    def pulse(self, value: int) -> None:
+        """Встановлює пульс у фізично допустимому діапазоні 30-250."""
+        if not 30 <= value <= 250:
+            raise ValueError("Пульс має бути в діапазоні 30-250")
+        self._pulse = value
+
+    def load(self) -> float:
+        """Оголошує операцію навантаження для підтипів."""
+        raise NotImplementedError
+
+    def sort_key(self) -> tuple[int, str]:
+        """Повертає ключ впорядкування: довші тренування першими, далі за датою."""
+        return (-self.duration, self.date)
+
+    def _state(self) -> tuple[str, str, int, float, int]:
+        """Повертає кортеж стану для порівняння."""
+        return (self.date, self.kind, self.duration, self.distance, self.pulse)
+
+    def __str__(self) -> str:
+        """Повертає коротке подання для читача."""
+        return f"{self.date} {self.kind}, {self.duration} хв"
+
+    def __repr__(self) -> str:
+        """Повертає діагностичне подання об'єкта."""
+        return (
+            f"{type(self).__name__}(date={self.date!r}, kind={self.kind!r}, "
+            f"duration={self.duration!r}, distance={self.distance!r}, pulse={self.pulse!r})"
+        )
+
+    def __eq__(self, other: object) -> bool:
+        """Порівнює тренування одного підтипу за повним станом."""
+        if not isinstance(other, Training):
+            return NotImplemented
+        return type(self) is type(other) and self._state() == other._state()
+
+    __hash__ = None  # Об'єкт змінюваний через setter-и, тому не використовується як ключ.
+
+class Running(Training):
+    """Біг: навантаження залежить від тривалості та пульсу."""
+
+    def load(self) -> float:
+        """Обчислює навантаження: хвилини · пульс / 100."""
+        return self.duration * self.pulse / 100
+
+class Cycling(Training):
+    """Велосипед: навантаження залежить від дистанції та тривалості."""
+
+    def load(self) -> float:
+        """Обчислює навантаження: км · 1.5 + хвилини · 0.5."""
+        return self.distance * 1.5 + self.duration * 0.5
+
+@dataclass(frozen=True)
+class ReportSummary:
+    """Незмінний підсумок обробки тренувань."""
+
+    count: int
+    selected: int
+    average_pulse: float
+    total_load: float
+
+def best_by_load(items: list[Loaded]) -> Loaded | None:
+    """Повертає об'єкт із найбільшим навантаженням або None для порожнього списку."""
+    # Функція знає лише про load(), тому новий підтип не потребує змін тут.
+    return max(items, key=lambda item: item.load(), default=None)
 ```
 
-Набір містить 8 записів, дубльований вид «біг» (перевірка множини), граничне значення duration = 45 (входить у відбір), запис 40 хв (не входить) і текст із комою. Поріг відбору threshold = 45 хв; порожній результат відбору перевіряється тестом із порогом 200. Пошкоджений файл data/broken.csv містить нечислову тривалість «дев'яносто».
+## Dataclass
 
-## Структура модулів
+ReportSummary(count, selected, average_pulse, total_load) оголошено @dataclass(frozen=True): автоматично створено __init__, __repr__, __eq__, а спроба змінити поле кидає FrozenInstanceError. Це просте незмінне значення результату, тому dataclass доречніший за звичайний клас; для Training обрано звичайний клас, бо він має setter-валідацію та підтипи.
 
-*Таблиця 1 – Модулі пакета src/kzp_lab06*
+## Підтипи та протокол
 
-| Модуль | Відповідальність |
+*Таблиця 2 – Формули спільної операції load()*
+
+| Підтип | Вид у CSV | load(), бали |
+|---|---|---|
+| Running | «біг», «біг, інтервали» | тривалість · пульс / 100 |
+| Cycling | «велосипед» | 1.5 · км + 0.5 · тривалість |
+
+Протокол Loaded(Protocol) описує один метод load() -> float. Функція best_by_load(items: list[Loaded]) викликає лише item.load() і не перевіряє клас – це качина типізація: новий підтип із методом load() працюватиме без змін. super() не потрібен у підтипах, бо вони не додають полів і використовують __init__ базового класу.
+
+## Модулі
+
+*Таблиця 3 – Модулі пакета src/kzp_lab07*
+
+| Модуль | Призначення |
 |---|---|
-| errors.py | клас DataError(ValueError) |
-| loader.py | читання CSV, перевірка заголовка, перетворення типів, помилки з номером рядка |
-| analysis.py | відбір, множина видів, словник агрегатів, середнє, максимум, make_summary |
-| reporting.py | детермінований текст звіту й запис через with |
-| cli.py | argparse, коди завершення 0/2, UTF-8 для stdout/stderr |
-| __init__.py | мінімальний публічний API та версія |
+| models.py | Training, Running, Cycling, Loaded, ReportSummary, best_by_load |
+| loader.py | CSV → об'єкти: factory build_training обирає підтип за kind один раз |
+| analysis.py | відбір, множина, агрегати, load_by_kind, make_summary – без isinstance |
+| reporting.py | текст звіту, сумісний з ЛР6, і запис через with |
+| errors.py | DataError |
+| cli.py | аргументи, коди 0/2 |
 
-loader не друкує звіт, analysis не відкриває файли, reporting не читає CSV. Точка входу захищена if __name__ == "__main__":, тому імпорт модуля в тестах не запускає програму.
-
-*Лістинг 2 – src/kzp_lab06/loader.py*
+*Лістинг 2 – src/kzp_lab07/loader.py*
 
 ```text
-"""Читання CSV і перетворення рядків на типізовані записи."""
+"""Читання CSV і перетворення рядків на об'єкти-тренування."""
 
 import csv
 from pathlib import Path
 
 from .errors import DataError
+from .models import Cycling, Running, Training
 
 REQUIRED_FIELDS = ("date", "kind", "duration", "distance", "pulse")
 
-def _parse_number(row: dict[str, str], field: str, row_number: int, kind: type) -> float | int:
-    """Перетворює поле на число та додає номер рядка і назву поля до помилки."""
-    try:
-        value = kind(row[field])
-    except (KeyError, TypeError, ValueError) as error:
-        raise DataError(f"Рядок {row_number}: поле {field} має бути числом") from error
-    if value < 0:
-        raise DataError(f"Рядок {row_number}: поле {field} не може бути від'ємним")
-    return value
-
-def parse_row(row: dict[str, str], row_number: int) -> dict[str, object]:
-    """Перевіряє один рядок CSV і повертає запис із типізованими значеннями."""
-    date = (row.get("date") or "").strip()
+def build_training(row: dict[str, str], row_number: int) -> Training:
+    """Перетворює CSV-рядок на відповідний підтип тренування."""
     kind = (row.get("kind") or "").strip()
-    if not date:
-        raise DataError(f"Рядок {row_number}: поле date порожнє")
-    if not kind:
-        raise DataError(f"Рядок {row_number}: поле kind порожнє")
-    pulse = _parse_number(row, "pulse", row_number, int)
-    if pulse == 0:
-        raise DataError(f"Рядок {row_number}: поле pulse має бути додатним")
-    return {
-        "date": date,
-        "kind": kind,
-        "duration": _parse_number(row, "duration", row_number, int),
-        "distance": float(_parse_number(row, "distance", row_number, float)),
-        "pulse": pulse,
-    }
-
-def load_records(path: Path) -> list[dict[str, object]]:
-    """Читає CSV у UTF-8 і повертає список перевірених записів."""
+    common: dict[str, object] = {"date": row.get("date") or "", "kind": kind}
+    for field, convert in (("duration", int), ("distance", float), ("pulse", int)):
+        try:
+            common[field] = convert(row[field])
+        except (KeyError, TypeError, ValueError) as error:
+            raise DataError(f"Рядок {row_number}: поле {field} має бути числом") from error
+    # Вибір підтипу виконується один раз на межі завантаження.
+    if kind.startswith("біг"):
+        factory = Running
+    elif kind.startswith("велосипед"):
+        factory = Cycling
+    else:
+        raise DataError(f"Рядок {row_number}: невідомий вид тренування: {kind!r}")
     try:
-        # newline="" передає керування роздільниками рядків модулю csv.
+        return factory(**common)
+    except (TypeError, ValueError) as error:
+        raise DataError(f"Рядок {row_number}: {error}") from error
+
+def load_trainings(path: Path) -> list[Training]:
+    """Читає CSV у UTF-8 і повертає список об'єктів-тренувань."""
+    try:
         with path.open("r", encoding="utf-8", newline="") as source:
             reader = csv.DictReader(source)
             if reader.fieldnames is None:
@@ -102,182 +238,187 @@ def load_records(path: Path) -> list[dict[str, object]]:
                     f"Некоректний заголовок CSV: {reader.fieldnames}, "
                     f"очікується {list(REQUIRED_FIELDS)}"
                 )
-            return [parse_row(row, row_number) for row_number, row in enumerate(reader, start=2)]
+            return [build_training(row, number) for number, row in enumerate(reader, start=2)]
     except OSError as error:
         raise DataError(f"Не вдалося прочитати файл: {path}") from error
 ```
 
-## Перетворення даних
-
-Список зберігає записи в порядку файла (list[dict[str, object]]). Відбір – list comprehension [record for record in records if int(record["duration"]) >= minimum]. Множина видів – set comprehension {str(record["kind"]) for record in records}. Словник агрегатів – dict comprehension {kind: sum(...) for kind in sorted(kinds)}. Сортування ключів робить порядок незалежним від вхідного файла.
-
-*Лістинг 3 – src/kzp_lab06/analysis.py*
+*Лістинг 3 – src/kzp_lab07/analysis.py*
 
 ```text
-"""Обчислення над записами тренувань."""
+"""Обчислення над об'єктами тренувань без перевірок конкретного підтипу."""
 
-from collections.abc import Iterable
+from .models import ReportSummary, Training, best_by_load
 
 MIN_DURATION = 45
 
-def long_trainings(
-    records: Iterable[dict[str, object]], minimum: int = MIN_DURATION
-) -> list[dict[str, object]]:
+def long_trainings(trainings: list[Training], minimum: int = MIN_DURATION) -> list[Training]:
     """Повертає тренування тривалістю не менше заданої кількості хвилин."""
-    return [record for record in records if int(record["duration"]) >= minimum]
+    return [training for training in trainings if training.duration >= minimum]
 
-def kinds(records: Iterable[dict[str, object]]) -> set[str]:
-    """Повертає множину унікальних видів тренувань."""
-    return {str(record["kind"]) for record in records}
+def kinds(trainings: list[Training]) -> set[str]:
+    """Повертає множину унікальних видів."""
+    return {training.kind for training in trainings}
 
-def distance_by_kind(records: list[dict[str, object]]) -> dict[str, float]:
-    """Обчислює сумарну дистанцію за видом у стабільному порядку ключів."""
+def distance_by_kind(trainings: list[Training]) -> dict[str, float]:
+    """Обчислює сумарну дистанцію за видом у стабільному порядку."""
     return {
-        kind: sum(float(record["distance"]) for record in records if record["kind"] == kind)
-        for kind in sorted(kinds(records))
+        kind: sum(training.distance for training in trainings if training.kind == kind)
+        for kind in sorted(kinds(trainings))
     }
 
-def average_pulse(records: list[dict[str, object]]) -> float:
+def load_by_kind(trainings: list[Training]) -> dict[str, float]:
+    """Обчислює поліморфне навантаження за видом через спільний метод load()."""
+    return {
+        kind: sum(training.load() for training in trainings if training.kind == kind)
+        for kind in sorted(kinds(trainings))
+    }
+
+def average_pulse(trainings: list[Training]) -> float:
     """Повертає середній пульс або 0.0 для порожнього набору."""
-    if not records:
+    if not trainings:
         return 0.0
-    return sum(int(record["pulse"]) for record in records) / len(records)
+    return sum(training.pulse for training in trainings) / len(trainings)
 
-def longest_training(records: list[dict[str, object]]) -> dict[str, object] | None:
-    """Повертає найдовше тренування (перше за порядком при рівності) або None."""
-    return max(records, key=lambda record: int(record["duration"]), default=None)
+def longest_training(trainings: list[Training]) -> Training | None:
+    """Повертає найдовше тренування (перше за ключем сортування) або None."""
+    ordered = sorted(trainings, key=Training.sort_key)
+    return ordered[0] if ordered else None
 
-def make_summary(
-    records: list[dict[str, object]],
-    *metrics: str,
-    minimum_duration: int = MIN_DURATION,
-    **labels: str,
-) -> dict[str, object]:
-    """Формує підсумок і довільні суми метрик для тренувань від minimum_duration хвилин."""
-    for metric in metrics:
-        if records and any(metric not in record for record in records):
-            raise ValueError(f"Невідома метрика: {metric}")
-    selected = long_trainings(records, minimum_duration)
-    result: dict[str, object] = {
-        "count": len(records),
+def make_summary(trainings: list[Training], minimum_duration: int = MIN_DURATION) -> dict:
+    """Формує підсумок звіту; ключі сумісні зі словниковою версією ЛР6."""
+    selected = long_trainings(trainings, minimum_duration)
+    return {
+        "count": len(trainings),
         "selected": len(selected),
-        "kinds": kinds(records),
-        "distance_by_kind": distance_by_kind(records),
-        "average_pulse": average_pulse(records),
-        "longest": longest_training(records),
+        "kinds": kinds(trainings),
+        "distance_by_kind": distance_by_kind(trainings),
+        "average_pulse": average_pulse(trainings),
+        "longest": longest_training(trainings),
+        "minutes_long": float(sum(training.duration for training in selected)),
+        "load_by_kind": load_by_kind(trainings),
+        "best": best_by_load(trainings),
+        "summary": ReportSummary(
+            count=len(trainings),
+            selected=len(selected),
+            average_pulse=average_pulse(trainings),
+            total_load=sum(training.load() for training in trainings),
+        ),
     }
-    for metric in metrics:
-        result[labels.get(metric, metric)] = sum(float(record[metric]) for record in selected)
-    return result
 ```
 
-## Функції
+## Тестування
 
-make_summary(records, *metrics, minimum_duration=45, **labels): metrics усередині – кортеж назв полів для підсумовування, minimum_duration – незмінне типове значення (int, не список), labels – словник підписів для метрик. Невідома метрика відхиляється ValueError. Приклад виклику з CLI: make_summary(records, "duration", duration="minutes_long") – сумарний час тренувань від 45 хв (435 хв).
+14 тестів pytest: setter-и для коректного, нульового й граничних значень (30 і 250); відхилення помилкових значень; властивості лише для читання; frozen dataclass і його рівність; __str__, __repr__, __eq__ і NotImplemented; різні формули load(); протокольна функція на обох підтипах і порожньому списку; впорядкування через key; loader створює обидва підтипи; номер рядка й причина помилки; невідомий вид; порожній вхід; рівність дубльованих записів; сумісність звіту з ЛР6; CLI з кодом 2.
 
-## Алгоритм аналізу
+Знайдений дефект під час розробки. Перший запуск pytest дав 1 падіння: тест test_protocol_function_works_with_both_subtypes очікував, що найбільше навантаження має біг, але велосипед 41.3 км/120 хв дає 1.5·41.3 + 0.5·120 = 121.95 > 90.0. Помилку було в очікуванні тесту, а не в коді; тест виправлено з поясненням обчислення. Також повідомлення loader уточнено назвою поля («поле duration має бути числом»).
 
-– відбір: тренування від 45 хв (6 із 8);
-
-– агрегування: сумарна дистанція за видом (distance_by_kind);
-
-– унікальні значення: множина видів (3 види);
-
-– показники звіту варіанта: середній пульс (143.50) і найдовше тренування (120 хв);
-
-– детермінований порядок: sorted для ключів і видів, фіксований формат :.2f.
-
-## Обробка помилок
-
-DataError містить номер рядка (рахуючи заголовок як рядок 1) і назву поля: «Рядок 3: поле duration має бути числом». Першопричина зберігається через raise DataError(...) from error; помилки файлової системи OSError також перетворюються на DataError. Голий except не використано. CLI повертає 0 після успіху та 2 для помилки даних, повідомлення виводиться в stderr.
-
-*Лістинг 4 – src/kzp_lab06/cli.py*
+*Лістинг 4 – tests/test_models.py*
 
 ```text
-"""Командний рядок: вхідний CSV → текстовий звіт."""
+"""Тести класів, властивостей, dataclass і спеціальних методів."""
 
-import argparse
-import sys
-from pathlib import Path
+import dataclasses
 
-from .analysis import make_summary
-from .errors import DataError
-from .loader import load_records
-from .reporting import format_report, write_report
+import pytest
 
-def _reconfigure_utf8() -> None:
-    """Задає UTF-8 для stdout і stderr, бо консоль Windows може мати інше кодування."""
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8")
-        except (AttributeError, ValueError):
-            pass
+from kzp_lab07.models import Cycling, ReportSummary, Running, best_by_load
 
-def main(argv: list[str] | None = None) -> int:
-    """Обробляє аргументи CLI, будує та записує звіт; повертає код завершення."""
-    _reconfigure_utf8()
-    parser = argparse.ArgumentParser(description="Звіт про спортивні тренування")
-    parser.add_argument("input_csv", type=Path)
-    parser.add_argument("output_report", type=Path)
-    args = parser.parse_args(argv)
-    try:
-        records = load_records(args.input_csv)
-        summary = make_summary(records, "duration", duration="minutes_long")
-        text = format_report(summary)
-        write_report(args.output_report, text)
-    except DataError as error:
-        print(f"Помилка даних: {error}", file=sys.stderr)
-        return 2
-    print(text, end="")
-    print(f"Звіт записано у {args.output_report}")
-    return 0
+def test_property_setter_accepts_boundaries() -> None:
+    """Перевіряє коректне, нульове та граничні значення setter-ів."""
+    run = Running("2026-09-01", "біг", 45, 8.5, 148)
+    run.duration = 0
+    run.pulse = 30
+    assert run.duration == 0
+    run.pulse = 250
+    assert run.pulse == 250
 
-if __name__ == "__main__":
-    raise SystemExit(main())
-```
+def test_property_setter_rejects_invalid() -> None:
+    """Перевіряє відхилення помилкових значень."""
+    run = Running("2026-09-01", "біг", 45, 8.5, 148)
+    with pytest.raises(ValueError):
+        run.duration = -1
+    with pytest.raises(ValueError):
+        run.pulse = 251
+    with pytest.raises(ValueError):
+        Cycling("2026-09-02", "велосипед", 90, -1.0, 132)
+    with pytest.raises(ValueError):
+        Running("", "біг", 45, 8.5, 148)
 
-## Файловий звіт
+def test_readonly_properties() -> None:
+    """Перевіряє, що дату й вид не можна перезаписати."""
+    run = Running("2026-09-01", "біг", 45, 8.5, 148)
+    with pytest.raises(AttributeError):
+        run.kind = "велосипед"
 
-Звіт записується у reports/summary.txt функцією write_report: каталог створюється mkdir(parents=True, exist_ok=True), файл відкривається path.open("w", encoding="utf-8", newline="\n") у блоці with, що гарантує закриття навіть у разі помилки.
+def test_summary_is_frozen_and_comparable() -> None:
+    """Перевіряє незмінність і рівність frozen dataclass."""
+    summary = ReportSummary(8, 6, 143.5, 549.6)
+    assert summary == ReportSummary(8, 6, 143.5, 549.6)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        summary.count = 3
 
-*Лістинг 5 – src/kzp_lab06/reporting.py*
+def test_str_repr_eq() -> None:
+    """Перевіряє текстові подання та рівність за станом і підтипом."""
+    first = Running("2026-09-01", "біг", 45, 8.5, 148)
+    assert str(first) == "2026-09-01 біг, 45 хв"
+    assert repr(first) == (
+        "Running(date='2026-09-01', kind='біг', duration=45, distance=8.5, pulse=148)"
+    )
+    assert first == Running("2026-09-01", "біг", 45, 8.5, 148)
+    assert first != Cycling("2026-09-01", "біг", 45, 8.5, 148)
+    assert first.__eq__("рядок") is NotImplemented
 
-```text
-"""Формування та запис текстового звіту."""
+def test_subtypes_have_different_load() -> None:
+    """Перевіряє різні формули спільної операції load()."""
+    run = Running("2026-09-01", "біг", 60, 10.0, 150)
+    bike = Cycling("2026-09-01", "велосипед", 60, 10.0, 150)
+    assert run.load() == pytest.approx(90.0)
+    assert bike.load() == pytest.approx(45.0)
 
-from pathlib import Path
+def test_protocol_function_works_with_both_subtypes() -> None:
+    """Перевіряє duck typing: функція не знає конкретного класу."""
+    run = Running("2026-09-01", "біг", 60, 10.0, 150)
+    bike = Cycling("2026-09-08", "велосипед", 120, 41.3, 138)
+    # 41.3 * 1.5 + 120 * 0.5 = 121.95 > 60 * 150 / 100 = 90.0
+    assert best_by_load([run, bike]) is bike
+    assert best_by_load([run]) is run
+    assert best_by_load([]) is None
 
-def format_report(summary: dict[str, object]) -> str:
-    """Форматує підсумок у детермінований текстовий звіт."""
-    lines = [
-        "Звіт: спортивні тренування",
-        f"Записів: {summary['count']}",
-        f"Тренувань від 45 хв: {summary['selected']}",
-        f"Види тренувань: {'; '.join(sorted(summary['kinds']))}",
-        "Сумарна дистанція за видом, км:",
+def test_sort_key_orders_longest_first() -> None:
+    """Перевіряє впорядкування через key."""
+    items = [
+        Running("2026-09-05", "біг", 30, 5.2, 140),
+        Cycling("2026-09-08", "велосипед", 120, 41.3, 138),
+        Running("2026-09-01", "біг", 45, 8.5, 148),
     ]
-    for kind, distance in sorted(summary["distance_by_kind"].items()):
-        lines.append(f"  {kind}: {distance:.2f}")
-    lines.append(f"Середній пульс: {summary['average_pulse']:.2f}")
-    longest = summary["longest"]
-    if longest is None:
-        lines.append("Найдовше тренування: немає даних")
-    else:
-        lines.append(
-            f"Найдовше тренування: {longest['date']} {longest['kind']}, {longest['duration']} хв"
-        )
-    if "minutes_long" in summary:
-        lines.append(f"Сумарний час тренувань від 45 хв: {summary['minutes_long']:.0f} хв")
-    return "\n".join(lines) + "\n"
-
-def write_report(path: Path, text: str) -> None:
-    """Створює каталог і записує звіт у файл UTF-8."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="\n") as target:
-        target.write(text)
+    assert [item.duration for item in sorted(items, key=lambda item: item.sort_key())] == [
+        120,
+        45,
+        30,
+    ]
 ```
 
-*Лістинг 6 – Повний вивід CLI (python -m kzp_lab06.cli data\input.csv reports\summary.txt)*
+*Лістинг 5 – python -m pytest -v*
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.7.0
+rootdir: C:\Users\user\kzp-labs\lab07
+configfile: pyproject.toml
+collected 14 items
+
+tests\test_loader_cli.py ......                                          [ 42%]
+tests\test_models.py ........                                            [100%]
+
+============================= 14 passed in 0.11s ==============================
+```
+
+## Порівняння звітів
+
+Тест test_report_is_compatible_with_lab06 порівнює перші рядки нового звіту зі збереженим звітом ЛР6 (data/lab06-summary.txt) на тому самому CSV: усі 11 рядків звіту ЛР6 збігаються, зокрема рядок «Найдовше тренування: 2026-09-08 велосипед, 120 хв», який тепер формує метод __str__ об'єкта.
+
+*Лістинг 6 – Повний вивід CLI ЛР7*
 
 ```text
 Звіт: спортивні тренування
@@ -291,130 +432,33 @@ def write_report(path: Path, text: str) -> None:
 Середній пульс: 143.50
 Найдовше тренування: 2026-09-08 велосипед, 120 хв
 Сумарний час тренувань від 45 хв: 435 хв
+Навантаження за видом (load), бали:
+  біг: 285.75
+  біг, інтервали: 66.00
+  велосипед: 277.20
+Найбільше навантаження: 2026-09-08 велосипед, 120 хв (121.95)
 Звіт записано у reports\summary.txt
 ```
 
-*Лістинг 7 – Помилковий сценарій: data\broken.csv, код завершення 2*
+Перевірка навантаження для бігу: 45·148/100 + 30·140/100 + 75·145/100 + 45·152/100 = 66.6 + 42 + 108.75 + 68.4 = 285.75 бала.
 
-```text
-Помилка даних: Рядок 3: поле duration має бути числом
-```
+## Інфраструктура
 
-## Тестування
-
-19 тестів pytest: перетворення типів; поле з комою; порожній файл і лише заголовок; пошкоджене число з номером рядка й __cause__; від'ємне значення та нульовий пульс; відсутній стовпець; відсутнє значення в рядку й порожній вид; відсутній файл; відбір із межею; порожній результат відбору; множина без дублікатів; детермінований словник; середнє й максимум; порожній вхід; *args/типовий параметр/**kwargs; невідома метрика; запис UTF-8; CLI успіх і помилка.
-
-*Лістинг 8 – python -m pytest -v*
-
-```text
-============================= test session starts =============================
-platform win32 -- Python 3.12.10, pytest-9.1.1, pluggy-1.7.0
-rootdir: C:\Users\user\kzp-labs\lab06
-configfile: pyproject.toml
-collected 19 items
-
-tests\test_analysis.py ........                                          [ 42%]
-tests\test_cli.py ...                                                    [ 57%]
-tests\test_loader.py ........                                            [100%]
-
-============================= 19 passed in 0.20s ==============================
-```
-
-*Лістинг 9 – tests/test_analysis.py*
-
-```text
-"""Тести функцій аналізу."""
-
-import pytest
-
-from kzp_lab06.analysis import (
-    average_pulse,
-    distance_by_kind,
-    kinds,
-    long_trainings,
-    longest_training,
-    make_summary,
-)
-
-RECORDS = [
-    {"date": "2026-09-01", "kind": "біг", "duration": 45, "distance": 8.5, "pulse": 148},
-    {"date": "2026-09-02", "kind": "велосипед", "duration": 90, "distance": 32.0, "pulse": 132},
-    {"date": "2026-09-05", "kind": "біг", "duration": 30, "distance": 5.2, "pulse": 140},
-]
-
-def test_filter_includes_boundary() -> None:
-    """Перевіряє, що 45 хв входить у відбір, а 30 - ні."""
-    assert [record["date"] for record in long_trainings(RECORDS)] == ["2026-09-01", "2026-09-02"]
-
-def test_filter_can_return_empty_result() -> None:
-    """Перевіряє явний порожній результат відбору."""
-    assert long_trainings(RECORDS, minimum=200) == []
-
-def test_set_removes_duplicates() -> None:
-    """Перевіряє, що множина видів не містить дублікатів."""
-    assert kinds(RECORDS) == {"біг", "велосипед"}
-
-def test_distance_by_kind_is_deterministic() -> None:
-    """Перевіряє значення і порядок ключів словника агрегатів."""
-    result = distance_by_kind(list(reversed(RECORDS)))
-    assert list(result) == ["біг", "велосипед"]
-    assert result["біг"] == pytest.approx(13.7)
-
-def test_average_and_longest() -> None:
-    """Перевіряє середній пульс і найдовше тренування."""
-    assert average_pulse(RECORDS) == pytest.approx(140.0)
-    assert longest_training(RECORDS)["kind"] == "велосипед"
-
-def test_empty_input() -> None:
-    """Перевіряє поведінку на порожньому вході."""
-    summary = make_summary([], "duration")
-    assert summary["count"] == 0
-    assert summary["distance_by_kind"] == {}
-    assert summary["average_pulse"] == 0.0
-    assert summary["longest"] is None
-    assert summary["duration"] == 0.0
-
-def test_make_summary_args_defaults_and_kwargs() -> None:
-    """Перевіряє *args, типовий параметр і **kwargs."""
-    summary = make_summary(RECORDS, "duration", "distance", duration="Хвилини", distance="Км")
-    assert summary["selected"] == 2
-    assert summary["Хвилини"] == 135.0
-    assert summary["Км"] == pytest.approx(40.5)
-    strict = make_summary(RECORDS, "duration", minimum_duration=60)
-    assert strict["duration"] == 90.0
-
-def test_unknown_metric_rejected() -> None:
-    """Перевіряє явну помилку для невідомої метрики."""
-    with pytest.raises(ValueError, match="Невідома метрика"):
-        make_summary(RECORDS, "speed")
-```
-
-## Якість та пакетування
-
-*Лістинг 10 – ruff check .*
+*Лістинг 7 – ruff check .*
 
 ```text
 All checks passed!
 ```
 
-*Лістинг 11 – ruff format --check .*
+*Лістинг 8 – ruff format --check .*
 
 ```text
 10 files already formatted
 ```
 
-Wheel kzp_training_report-0.1.0-py3-none-any.whl зібрано командою python -m build --wheel і встановлено в окреме чисте середовище без dev-залежностей; CLI з цього середовища дав той самий звіт:
+Wheel kzp_training_oop-0.2.0-py3-none-any.whl зібрано python -m build --wheel, встановлено pip install --no-deps в окреме середовище .venv-wheel; CLI з нього повернув код 0 для data\input.csv і код 2 для data\broken.csv («Рядок 3: поле duration має бути числом»). CI (.github/workflows/ci.yml) запускає pytest, ruff і збірку wheel на Ubuntu, Windows і macOS: посилання на запуск і артефакт – після push.
 
-*Лістинг 12 – Перевірка wheel*
-
-```text
-python -m venv .venv-wheel
-.venv-wheel\Scripts\python -m pip install --no-deps dist\kzp_training_report-0.1.0-py3-none-any.whl
-.venv-wheel\Scripts\python -m kzp_lab06.cli data\input.csv reports\summary.txt   # код 0
-.venv-wheel\Scripts\python -m kzp_lab06.cli data\broken.csv reports\broken.txt   # код 2
-```
-
-*Лістинг 13 – pyproject.toml*
+*Лістинг 9 – pyproject.toml*
 
 ```text
 [build-system]
@@ -422,20 +466,16 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kzp-training-report"
-version = "0.1.0"
-description = "CSV report for sport trainings (KZP, variant 2)"
+name = "kzp-training-oop"
+version = "0.2.0"
+description = "Object-oriented report for sport trainings (KZP, variant 2)"
 requires-python = ">=3.11"
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "ruff>=0.8",
-    "build>=1.2",
-]
+dev = ["pytest>=8.0", "ruff>=0.8", "build>=1.2"]
 
 [project.scripts]
-kzp-lab06 = "kzp_lab06.cli:main"
+kzp-lab07 = "kzp_lab07.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -452,64 +492,18 @@ exclude = ["build", "dist", ".venv", ".venv-*"]
 select = ["E", "F", "W", "B", "UP"]
 ```
 
-## GitHub Actions
-
-Матриця Ubuntu/Windows/macOS: встановлення pip install -e ".[dev]", pytest, ruff check, ruff format --check, збірка wheel і завантаження артефакту. Посилання: запуск CI та wheel-артефакт – після push.
-
-*Лістинг 14 – .github/workflows/ci.yml*
-
-```text
-name: Python checks
-
-on:
-  push:
-  pull_request:
-
-jobs:
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: pip
-      - name: Install project
-        run: python -m pip install -e ".[dev]"
-      - name: Test
-        run: python -m pytest
-      - name: Lint
-        run: ruff check .
-      - name: Format check
-        run: ruff format --check .
-      - name: Build wheel
-        run: python -m build --wheel
-      - name: Upload wheel
-        uses: actions/upload-artifact@v4
-        with:
-          name: kzp-training-report-${{ matrix.os }}-${{ github.run_number }}
-          path: dist/*.whl
-          if-no-files-found: error
-```
-
 ## GitHub Issues і Pull Request
 
-*Таблиця 2 – План GitHub Issues → зміна → перевірка*
+*Таблиця 4 – План GitHub Issues → зміна → перевірка*
 
 | Issue | Мітка | Зміна | Перевірка |
 |---|---|---|---|
-| Завантаження CSV | feature | loader.py, DataError | test_loader.py |
-| Аналіз даних | feature | analysis.py, comprehensions | test_analysis.py |
-| Звіт і CLI | feature | reporting.py, cli.py | test_cli.py |
-| Якість коду | infra | pyproject.toml: ruff, pytest | ruff check/format |
-| CI і wheel | infra | ci.yml, build | зелений CI, артефакт |
-| Документація ЛР6 | docs | README, docstrings, REPORT | рев'ю PR |
+| Базовий клас і властивості | feature | Training, setter-и | test_property_* |
+| Dataclass підсумку | feature | ReportSummary frozen | test_summary_is_frozen… |
+| Підтипи й протокол | feature | Running, Cycling, Loaded | test_subtypes…, test_protocol… |
+| Loader → об'єкти | feature | build_training | test_loader_* |
+| [bug] Хибне очікування в тесті протоколу | bug | виправлено очікування | pytest зелений |
+| Документація ЛР7 | docs | README, docstrings, REPORT | рев'ю PR |
 
 ## Академічна доброчесність
 
@@ -517,87 +511,87 @@ jobs:
 
 ## Відповіді на контрольні питання
 
-1. Яку роль виконує pyproject.toml у Python-проєкті?
+1. Чим клас відрізняється від екземпляра?
 
-Описує пакет (назва, версія, мінімальний Python), dev-залежності, точку входу CLI, систему збірки та налаштування pytest і ruff.
+Клас описує структуру й поведінку (Running), екземпляр – конкретний об'єкт із власним станом (Running("2026-09-01", "біг", 45, 8.5, 148)).
 
-2. Навіщо створюється віртуальне середовище?
+2. Яку роль виконує __init__ і що означає self?
 
-Щоб ізолювати залежності проєкту від системного Python і відтворювати їх за pyproject.toml; .venv у репозиторій не додається.
+__init__ встановлює початковий стан нового екземпляра; self – посилання на поточний екземпляр, передається першим параметром методів.
 
-3. Чому CSV-файл відкривається з newline=""?
+3. Для чого застосовується @property?
 
-Модуль csv сам обробляє роздільники рядків, зокрема перенесення всередині лапок; інакше Python перетворював би їх заздалегідь.
+Щоб доступ виглядав як до поля, а читання чи запис виконували метод із перевіркою інваріанта.
 
-4. Які типи повертає csv.DictReader без додаткового перетворення?
+4. Чому setter записує у внутрішнє поле, а не у властивість?
 
-Словник str → str: усі значення є рядками, числа треба перетворювати явно.
+self.duration = value усередині setter викликав би той самий setter нескінченно; тому пишемо self._duration.
 
-5. Чому split(",") не є коректним CSV-парсером?
+5. Яку поведінку автоматично додає @dataclass?
 
-Він розірве "біг, інтервали" на два поля й не обробить лапки.
+__init__, __repr__, __eq__ (а з frozen=True – також заборону присвоєння й __hash__).
 
-6. Як відрізняються список, словник і множина?
+6. Навіщо застосовується frozen=True?
 
-Список упорядкований і допускає повтори; словник зіставляє унікальні ключі зі значеннями; множина зберігає унікальні значення без гарантованого порядку.
+Щоб підсумок не можна було змінити після створення й намір незмінності був явним.
 
-7. Коли comprehension робить код зрозумілішим, а коли краще використати цикл?
+7. Чим відрізняються __str__ і __repr__?
 
-Для одного прозорого відбору чи перетворення – comprehension; для кількох вкладених умов, побічних ефектів або складного накопичення – звичайний цикл.
+__str__ – подання для читача у звіті, __repr__ – однозначне діагностичне подання для розробника.
 
-8. Що містять *args і **kwargs усередині функції?
+8. Як __eq__ має поводитися з несумісним типом?
 
-*args – кортеж додаткових позиційних аргументів, **kwargs – словник іменованих.
+Повертати NotImplemented, щоб Python спробував порівняння з іншого боку або повернув False.
 
-9. Чому змінний об'єкт небезпечний як значення за замовчуванням?
+9. Коли сортування через key краще за реалізацію __lt__?
 
-Він створюється один раз під час визначення функції й спільний для всіх викликів, тож зміни «перетікають» між викликами.
+Коли критерій залежить від конкретного звіту, а не є природним порядком сутності; key задається в місці використання.
 
-10. Як raise ... from error зберігає першопричину?
+10. Яку роль виконує super()?
 
-Записує початковий виняток у __cause__ нового, і traceback показує обидва.
+Викликає наступну реалізацію методу в порядку MRO, зазвичай ініціалізацію базового класу.
 
-11. Чому завантаження, аналіз і запис звіту розділяються на модулі?
+11. Що таке MRO і чому його потрібно враховувати?
 
-Кожен модуль має одну відповідальність і тестується окремо, наприклад analysis – без файлів.
+Method Resolution Order – порядок пошуку методів у ієрархії; при множинному успадкуванні super() звертається не обов'язково до прямого батька.
 
-12. Яку гарантію дає with під час роботи з файлом?
+12. Що означає качина типізація?
 
-Файл буде закрито після виходу з блоку, навіть якщо виник виняток.
+Важливо, що об'єкт уміє (load()), а не його клас; best_by_load працює з будь-яким таким об'єктом.
 
-13. Чому звіт має формуватися в детермінованому порядку?
+13. Яку проблему розв'язує Protocol?
 
-Щоб однаковий вхід давав однаковий текст на будь-якій ОС і тести могли порівнювати рядки.
+Дає статичний опис очікуваної поведінки для перевірки типів без примусового успадкування.
 
-14. Які випадки повинні бути перевірені для порожнього CSV?
+14. Чому analysis не повинен перевіряти кожен конкретний підтип?
 
-Повністю порожній файл, файл лише із заголовком і поведінка аналізу на порожньому списку (середнє 0.0, найдовше – None).
+Інакше додавання підтипу вимагало б змін у кожній функції; формула має жити в підтипі.
 
-15. Чим тест поведінки відрізняється від перевірки внутрішньої реалізації?
+15. Де має виконуватися перетворення словника на об'єкт?
 
-Перевіряє результат через публічні функції, а не імена внутрішніх змінних, тож не ламається при рефакторингу.
+На межі завантаження – у loader (build_training), щоб analysis отримував лише коректні об'єкти.
 
-16. Які файли знаходить pytest?
+16. Чому модулі не повинні запускати CLI під час імпорту?
 
-test_*.py або *_test.py і функції test_* у них.
+Імпорт у тестах або іншому коді не має виконувати програму; тому запуск захищено if __name__ == "__main__":.
 
-17. Які перевірки виконує ruff?
+17. Які властивості об'єктів перевіряються тестами?
 
-ruff check – помилки й стиль (правила E, F, W, B, UP), ruff format --check – форматування без зміни файлів.
+Валідація setter-ів, лише-читання, незмінність dataclass, рівність, текстові подання, різна поведінка підтипів і робота через протокол.
 
-18. Які коди завершення має CLI для успіху та очікуваної помилки?
+18. Для чого потрібні pytest, ruff і wheel?
 
-0 – успіх, 2 – помилка вхідних даних.
+pytest перевіряє поведінку, ruff – якість і форматування коду, wheel – можливість встановити й запустити пакет.
 
-19. Чому в CI запускаються і тести, і аналізатор, і пакетування?
+19. Які крайові випадки має містити тестовий набір?
 
-Тести перевіряють поведінку, ruff – якість, а збірка wheel – що пакет можна встановити; кожна перевірка ловить свій клас проблем.
+Порожній вхід, граничні значення setter-а, нульове значення, помилковий рядок CSV, невідомий вид, дубльовані записи.
 
-20. Які дані та результати потрібно задекларувати в REPORT?
+20. Які результати потрібно задекларувати в REPORT?
 
-Заголовок і типи CSV, threshold, приклад даних і повного звіту, коди завершення, результати pytest, ruff, wheel і CI.
+Класи, поля, підтипи й формули, старий і новий звіти, результати pytest, ruff, wheel, коди CLI та CI.
 
 ## Висновки
 
-Створено Python-пакет із модульним завантаженням CSV, функціями аналізу на списках, словниках, множинах і comprehensions, детермінованим звітом і CLI. 19 тестів pytest проходять, ruff не має зауважень, wheel збирається й працює в чистому середовищі. Наступна робота перенесе обчислення на класи з @property, @dataclass і спеціальними методами.
+Словникові записи ЛР6 перетворено на об'єкти з інкапсульованими властивостями, двома підтипами зі спільною операцією load(), протоколом Loaded і незмінним ReportSummary. Зовнішній звіт сумісний із ЛР6, 14 тестів проходять, ruff чистий, wheel встановлюється й працює. Об'єктна модель може надалі розширюватися власним зберіганням і контекстними менеджерами.
 

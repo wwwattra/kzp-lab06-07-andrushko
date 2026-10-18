@@ -1,4 +1,4 @@
-"""Командний рядок: вхідний CSV → текстовий звіт."""
+"""Командний рядок: вхідний CSV → об'єкти → текстовий звіт."""
 
 import argparse
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .analysis import make_summary
 from .errors import DataError
-from .loader import load_records
+from .loader import load_trainings
 from .reporting import format_report, write_report
 
 
@@ -22,14 +22,12 @@ def _reconfigure_utf8() -> None:
 def main(argv: list[str] | None = None) -> int:
     """Обробляє аргументи CLI, будує та записує звіт; повертає код завершення."""
     _reconfigure_utf8()
-    parser = argparse.ArgumentParser(description="Звіт про спортивні тренування")
+    parser = argparse.ArgumentParser(description="ООП-звіт про спортивні тренування")
     parser.add_argument("input_csv", type=Path)
     parser.add_argument("output_report", type=Path)
     args = parser.parse_args(argv)
     try:
-        records = load_records(args.input_csv)
-        summary = make_summary(records, "duration", duration="minutes_long")
-        text = format_report(summary)
+        text = format_report(make_summary(load_trainings(args.input_csv)))
         write_report(args.output_report, text)
     except DataError as error:
         print(f"Помилка даних: {error}", file=sys.stderr)
